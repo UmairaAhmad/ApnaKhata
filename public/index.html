@@ -16,25 +16,36 @@
   <!-- ===== Lock screen ===== -->
   <div id="lock-screen" class="lock-screen" hidden>
     <div class="lock-card">
-      <div class="lock-mark">आ</div>
+      <div class="lock-mark">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M18,13 A3,3 0 0 1 21,10 H36 L46,20 V51 A3,3 0 0 1 43,54 H21 A3,3 0 0 1 18,51 V13 Z"/>
+          <path d="M36,10 V20 H46"/>
+          <path d="M24,30 H40 M24,37 H34"/>
+        </svg>
+      </div>
       <h1 class="lock-title">ApnaKhata</h1>
+      <p class="lock-tagline">Cash book for your business</p>
       <p id="lock-copy" class="lock-copy">Enter your PIN to open the ledger.</p>
       <form id="lock-form" autocomplete="off">
-        <input
-          id="lock-pin"
-          type="password"
-          inputmode="numeric"
-          pattern="[0-9]*"
-          minlength="4"
-          maxlength="8"
-          placeholder="••••"
-          class="lock-input"
-          autofocus
-        />
+        <div class="lock-input-wrap">
+          <input
+            id="lock-pin"
+            type="password"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            minlength="4"
+            maxlength="8"
+            placeholder="••••"
+            class="lock-input"
+            autofocus
+          />
+          <button type="button" id="lock-pin-toggle" class="lock-pin-toggle" aria-label="Show PIN" aria-pressed="false">Show</button>
+        </div>
         <button type="submit" class="btn btn-primary lock-btn">Unlock</button>
       </form>
       <p id="lock-error" class="lock-error" hidden></p>
       <p id="lock-hint" class="lock-hint" hidden>This is the first time opening ApnaKhata on this browser — choose a 4 to 8 digit PIN to protect your ledger. There's no password recovery, so keep it somewhere safe.</p>
+      <p class="lock-footnote">🔒 Private &amp; secure — your ledger stays on this device.</p>
     </div>
   </div>
 
@@ -43,7 +54,13 @@
 
     <aside class="side-nav">
       <div class="brand">
-        <span class="brand-mark">आ</span>
+        <span class="brand-mark">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M18,13 A3,3 0 0 1 21,10 H36 L46,20 V51 A3,3 0 0 1 43,54 H21 A3,3 0 0 1 18,51 V13 Z"/>
+            <path d="M36,10 V20 H46"/>
+            <path d="M24,30 H40 M24,37 H34"/>
+          </svg>
+        </span>
         <span class="brand-name">ApnaKhata</span>
       </div>
       <nav class="nav-links">

@@ -162,6 +162,16 @@
 
   $("#lock-now").addEventListener("click", () => lock());
 
+  $("#lock-pin-toggle").addEventListener("click", () => {
+    const input = $("#lock-pin");
+    const btn = $("#lock-pin-toggle");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    btn.textContent = showing ? "Show" : "Hide";
+    btn.setAttribute("aria-pressed", String(!showing));
+    input.focus();
+  });
+
   // ================= Navigation =================
   function switchView(name) {
     $$(".view").forEach((v) => v.classList.toggle("is-active", v.id === "view-" + name));
