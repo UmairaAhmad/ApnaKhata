@@ -13,20 +13,77 @@
 </head>
 <body>
 
+  <!-- ===== Login screen (Supabase Auth — the real security gate) ===== -->
+  <div id="login-screen" class="lock-screen" hidden>
+    <div class="lock-glow lock-glow-a" aria-hidden="true"></div>
+    <div class="lock-glow lock-glow-b" aria-hidden="true"></div>
+    <div class="lock-card">
+      <div class="lock-head">
+        <div class="lock-mark">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M18,13 A3,3 0 0 1 21,10 H36 L46,20 V51 A3,3 0 0 1 43,54 H21 A3,3 0 0 1 18,51 V13 Z"/>
+            <path d="M36,10 V20 H46"/>
+            <path d="M24,30 H40 M24,37 H34"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="lock-title">ApnaKhata</h1>
+          <p class="lock-tagline">Cash book for your business</p>
+        </div>
+      </div>
+      <p class="lock-copy">Log in to access your ledger.</p>
+      <form id="login-form" autocomplete="on">
+        <label for="login-email" class="lock-field-label">Email</label>
+        <div class="lock-input-wrap">
+          <input
+            id="login-email"
+            type="email"
+            class="lock-input login-field"
+            placeholder="you@business.com"
+            autocomplete="username"
+            required
+          />
+        </div>
+        <label for="login-password" class="lock-field-label">Password</label>
+        <div class="lock-input-wrap">
+          <input
+            id="login-password"
+            type="password"
+            class="lock-input login-field"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+          <button type="button" id="login-password-toggle" class="lock-pin-toggle" aria-label="Show password" aria-pressed="false">Show</button>
+        </div>
+        <button type="submit" class="btn btn-primary lock-btn">Log in</button>
+      </form>
+      <p id="login-error" class="lock-error" hidden></p>
+      <p class="lock-footnote">Only accounts created for this business can sign in.</p>
+    </div>
+  </div>
+
   <!-- ===== Lock screen ===== -->
   <div id="lock-screen" class="lock-screen" hidden>
+    <div class="lock-glow lock-glow-a" aria-hidden="true"></div>
+    <div class="lock-glow lock-glow-b" aria-hidden="true"></div>
     <div class="lock-card">
-      <div class="lock-mark">
-        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M18,13 A3,3 0 0 1 21,10 H36 L46,20 V51 A3,3 0 0 1 43,54 H21 A3,3 0 0 1 18,51 V13 Z"/>
-          <path d="M36,10 V20 H46"/>
-          <path d="M24,30 H40 M24,37 H34"/>
-        </svg>
+      <div class="lock-head">
+        <div class="lock-mark">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M18,13 A3,3 0 0 1 21,10 H36 L46,20 V51 A3,3 0 0 1 43,54 H21 A3,3 0 0 1 18,51 V13 Z"/>
+            <path d="M36,10 V20 H46"/>
+            <path d="M24,30 H40 M24,37 H34"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="lock-title">ApnaKhata</h1>
+          <p class="lock-tagline">Cash book for your business</p>
+        </div>
       </div>
-      <h1 class="lock-title">ApnaKhata</h1>
-      <p class="lock-tagline">Cash book for your business</p>
       <p id="lock-copy" class="lock-copy">Enter your PIN to open the ledger.</p>
       <form id="lock-form" autocomplete="off">
+        <label for="lock-pin" class="lock-field-label">PIN</label>
         <div class="lock-input-wrap">
           <input
             id="lock-pin"
@@ -44,8 +101,53 @@
         <button type="submit" class="btn btn-primary lock-btn">Unlock</button>
       </form>
       <p id="lock-error" class="lock-error" hidden></p>
-      <p id="lock-hint" class="lock-hint" hidden>This is the first time opening ApnaKhata on this browser — choose a 4 to 8 digit PIN to protect your ledger. There's no password recovery, so keep it somewhere safe.</p>
-      <p class="lock-footnote">🔒 Private &amp; secure — your ledger stays on this device.</p>
+      <p id="lock-hint" class="lock-hint" hidden>This is the first time opening ApnaKhata on this browser — choose a 4 to 8 digit PIN to protect your ledger. Right after, you'll get a one-time recovery key — save it somewhere safe in case you forget your PIN.</p>
+      <button type="button" id="forgot-pin-link" class="link-btn lock-forgot" hidden>Forgot your PIN?</button>
+      <p class="lock-footnote">Private and secure — your ledger stays on this device.</p>
+    </div>
+  </div>
+
+  <!-- ===== Recovery key reveal (shown once, right after a PIN is created) ===== -->
+  <div id="recovery-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>Save your recovery key</h2>
+      <p class="panel-copy">If you ever forget your PIN, this key is the only way back into your ledger. Write it down or save it somewhere safe — ApnaKhata can't recover it for you.</p>
+      <div class="recovery-code-box">
+        <span id="recovery-code-text" class="recovery-code-text"></span>
+        <button type="button" id="recovery-copy" class="btn btn-ghost">Copy</button>
+      </div>
+      <label class="recovery-confirm-label">
+        <input type="checkbox" id="recovery-confirm-check" />
+        I've saved my recovery key somewhere safe
+      </label>
+      <div class="modal-actions">
+        <div class="modal-actions-right">
+          <button type="button" id="recovery-continue" class="btn btn-primary" disabled>Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Forgot PIN / reset with recovery key ===== -->
+  <div id="reset-pin-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h2>Reset your PIN</h2>
+      <p class="panel-copy">Enter the recovery key you saved when you first set up ApnaKhata.</p>
+      <form id="reset-pin-form" class="stacked-form">
+        <label>Recovery key
+          <input type="text" id="reset-recovery-code" class="input" autocomplete="off" autocapitalize="characters" placeholder="e.g. 7F3K-9QRT-XM2P" required />
+        </label>
+        <label>New PIN
+          <input type="password" id="reset-new-pin" inputmode="numeric" minlength="4" maxlength="8" class="input" required />
+        </label>
+        <p id="reset-pin-error" class="form-status" hidden></p>
+        <div class="modal-actions">
+          <button type="button" id="reset-pin-cancel" class="btn btn-ghost">Cancel</button>
+          <div class="modal-actions-right">
+            <button type="submit" class="btn btn-primary">Reset PIN</button>
+          </div>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -78,29 +180,56 @@
       <section id="view-dashboard" class="view is-active">
         <header class="view-header">
           <h1>Dashboard</h1>
-          <div class="quick-add">
-            <button class="btn btn-in" data-quick="in">+ Cash In</button>
-            <button class="btn btn-out" data-quick="out">− Cash Out</button>
-          </div>
         </header>
 
         <div class="balance-hero">
-          <span class="balance-label">Balance in hand</span>
-          <span id="balance-figure" class="balance-figure">Rs 0</span>
+          <div class="balance-hero-top">
+            <span class="balance-label">Balance in hand</span>
+            <span id="balance-figure" class="balance-figure">Rs 0</span>
+          </div>
+          <div class="hero-actions">
+            <button class="hero-action type-in" data-quick="in">
+              <span class="hero-action-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M6 13l6 6 6-6"/></svg>
+              </span>
+              Cash In
+            </button>
+            <button class="hero-action type-out" data-quick="out">
+              <span class="hero-action-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M6 11l6-6 6 6"/></svg>
+              </span>
+              Cash Out
+            </button>
+          </div>
         </div>
 
         <div class="stat-row">
           <div class="stat">
-            <span class="stat-label">Cash in — this month</span>
-            <span id="stat-in" class="stat-figure figure-in">Rs 0</span>
+            <span class="stat-icon stat-icon-in">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M6 13l6 6 6-6"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Cash in — this month</span>
+              <span id="stat-in" class="stat-figure figure-in">Rs 0</span>
+            </span>
           </div>
           <div class="stat">
-            <span class="stat-label">Cash out — this month</span>
-            <span id="stat-out" class="stat-figure figure-out">Rs 0</span>
+            <span class="stat-icon stat-icon-out">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M6 11l6-6 6 6"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Cash out — this month</span>
+              <span id="stat-out" class="stat-figure figure-out">Rs 0</span>
+            </span>
           </div>
           <div class="stat">
-            <span class="stat-label">Net — this month</span>
-            <span id="stat-net" class="stat-figure">Rs 0</span>
+            <span class="stat-icon stat-icon-net">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Net — this month</span>
+              <span id="stat-net" class="stat-figure">Rs 0</span>
+            </span>
           </div>
         </div>
 
@@ -161,16 +290,31 @@
 
         <div class="stat-row">
           <div class="stat">
-            <span class="stat-label">Cash in</span>
-            <span id="report-in" class="stat-figure figure-in">Rs 0</span>
+            <span class="stat-icon stat-icon-in">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M6 13l6 6 6-6"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Cash in</span>
+              <span id="report-in" class="stat-figure figure-in">Rs 0</span>
+            </span>
           </div>
           <div class="stat">
-            <span class="stat-label">Cash out</span>
-            <span id="report-out" class="stat-figure figure-out">Rs 0</span>
+            <span class="stat-icon stat-icon-out">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M6 11l6-6 6 6"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Cash out</span>
+              <span id="report-out" class="stat-figure figure-out">Rs 0</span>
+            </span>
           </div>
           <div class="stat">
-            <span class="stat-label">Net</span>
-            <span id="report-net" class="stat-figure">Rs 0</span>
+            <span class="stat-icon stat-icon-net">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+            </span>
+            <span class="stat-body">
+              <span class="stat-label">Net</span>
+              <span id="report-net" class="stat-figure">Rs 0</span>
+            </span>
           </div>
         </div>
 
@@ -184,6 +328,12 @@
       <!-- ---------- Settings ---------- -->
       <section id="view-settings" class="view">
         <header class="view-header"><h1>Settings</h1></header>
+
+        <div class="panel panel-narrow">
+          <div class="panel-head"><h2>Account</h2></div>
+          <p class="panel-copy">Logged in as <strong id="account-email">—</strong>.</p>
+          <button id="logout-btn" class="btn btn-ghost">Log out</button>
+        </div>
 
         <div class="panel panel-narrow">
           <div class="panel-head"><h2>Change PIN</h2></div>
@@ -208,6 +358,18 @@
             <input type="file" id="restore-file" accept="application/json" class="input" />
           </label>
           <p id="restore-status" class="form-status" hidden></p>
+        </div>
+
+        <div class="panel panel-narrow">
+          <div class="panel-head"><h2>Recovery key</h2></div>
+          <p class="panel-copy">Your recovery key lets you reset your PIN if you ever forget it. If you've lost yours, generate a new one — this replaces the old key.</p>
+          <form id="regen-recovery-form" class="stacked-form">
+            <label>Current PIN
+              <input type="password" id="regen-recovery-pin" inputmode="numeric" minlength="4" maxlength="8" class="input" required />
+            </label>
+            <button type="submit" class="btn btn-ghost">Generate new recovery key</button>
+            <p id="regen-recovery-status" class="form-status" hidden></p>
+          </form>
         </div>
 
         <div class="panel panel-narrow">
@@ -265,6 +427,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

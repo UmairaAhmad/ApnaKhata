@@ -6,15 +6,25 @@
     "Transport", "Supplies", "Maintenance", "Loan", "Other",
   ];
 
-  const LS_TRANSACTIONS = "apnakhata_transactions";
   const LS_SETTINGS = "apnakhata_settings";
   const SS_UNLOCKED = "apnakhata_unlocked"; // sessionStorage: cleared when the tab/browser closes
   const UNLOCK_TTL_MS = 12 * 60 * 60 * 1000; // re-lock after 12 hours, same as before
+
+  // ================= Supabase =================
+  const SUPABASE_URL = "https://fqaqrpyxcsjwyqobjclo.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxYXFycHl4Y3Nqd3lxb2JqY2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1MjkxOTgsImV4cCI6MjEwNDEwNTE5OH0.I5DdazrCXtsxLTPPUSCJpHId-EU6gJBPj7tmGGkG8OI";
+  const TABLE = "transactions";
+  const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const state = {
     transactions: [],
     editingId: null,
   };
+
+  // Recovery-key reveal flow: holds the plaintext code only in memory, briefly,
+  // between generating it and the user confirming they've saved it.
+  let pendingRecoveryCode = null;
+  let recoveryModalContext = "setup"; // "setup" (first PIN) or "regenerate" (from Settings)
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -31,19 +41,93 @@
     showToast._t = setTimeout(() => (el.hidden = true), 2600);
   }
 
-  // ================= Local storage helpers =================
-  function loadAll() {
-    try {
-      const raw = localStorage.getItem(LS_TRANSACTIONS);
-      state.transactions = raw ? JSON.parse(raw) : [];
-    } catch {
-      state.transactions = [];
-    }
+  // ================= Transaction row <-> DB row mapping =================
+  // DB columns: id (uuid/text pk), type, amount, category, note, date, created_at
+  function rowFromDb(r) {
+    return {
+      _id: r.id,
+      type: r.type,
+      amount: Number(r.amount),
+      category: r.category,
+      note: r.note || "",
+      date: r.date,
+      createdAt: r.created_at,
+    };
+  }
+
+  function rowToDb(t) {
+    return {
+      id: t._id,
+      type: t.type,
+      amount: t.amount,
+      category: t.category,
+      note: t.note || "",
+      date: t.date,
+      created_at: t.createdAt,
+    };
+  }
+
+  function sortTransactions() {
     state.transactions.sort((a, b) => new Date(b.date) - new Date(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
   }
 
-  function saveAll() {
-    localStorage.setItem(LS_TRANSACTIONS, JSON.stringify(state.transactions));
+  // ================= Supabase data helpers =================
+  async function loadAll() {
+    const { data, error } = await supa
+      .from(TABLE)
+      .select("*")
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      showToast("Couldn't load entries — check your connection.");
+      state.transactions = [];
+      return;
+    }
+    state.transactions = (data || []).map(rowFromDb);
+  }
+
+  async function insertTransaction(t) {
+    const { error } = await supa.from(TABLE).insert(rowToDb(t));
+    if (error) {
+      console.error(error);
+      throw new Error("Couldn't save that entry. Check your connection and try again.");
+    }
+  }
+
+  async function updateTransaction(t) {
+    const { error } = await supa.from(TABLE).update(rowToDb(t)).eq("id", t._id);
+    if (error) {
+      console.error(error);
+      throw new Error("Couldn't save changes. Check your connection and try again.");
+    }
+  }
+
+  async function deleteTransaction(id) {
+    const { error } = await supa.from(TABLE).delete().eq("id", id);
+    if (error) {
+      console.error(error);
+      throw new Error("Couldn't delete that entry. Check your connection and try again.");
+    }
+  }
+
+  async function insertTransactions(list) {
+    const { error } = await supa.from(TABLE).insert(list.map(rowToDb));
+    if (error) {
+      console.error(error);
+      throw new Error("Couldn't import entries. Check your connection and try again.");
+    }
+  }
+
+  async function deleteAllTransactions() {
+    // Supabase requires a filter on delete; this matches every real row since
+    // no transaction will ever have this sentinel id.
+    const { error } = await supa.from(TABLE).delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    if (error) {
+      console.error(error);
+      throw new Error("Couldn't clear entries from the cloud.");
+    }
   }
 
   function getSettings() {
@@ -56,6 +140,34 @@
 
   function setSettings(settings) {
     localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
+  }
+
+  // ================= Recovery key helpers =================
+  // Avoids visually ambiguous characters (0/O, 1/I) since this is hand-copied.
+  const RECOVERY_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  function genRecoveryCode() {
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    let code = "";
+    for (let i = 0; i < 12; i++) code += RECOVERY_CHARS[bytes[i] % RECOVERY_CHARS.length];
+    return code; // 12 raw characters; hashed and displayed via the helpers below
+  }
+
+  function formatRecoveryCode(code) {
+    return code.match(/.{1,4}/g).join("-");
+  }
+
+  function normalizeRecoveryCode(input) {
+    return String(input || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  }
+
+  async function showRecoveryModal(code, context) {
+    pendingRecoveryCode = code;
+    recoveryModalContext = context;
+    $("#recovery-code-text").textContent = formatRecoveryCode(code);
+    $("#recovery-confirm-check").checked = false;
+    $("#recovery-continue").disabled = true;
+    $("#recovery-modal").hidden = false;
   }
 
   // ================= PIN hashing (Web Crypto, PBKDF2-SHA256) =================
@@ -96,6 +208,7 @@
     const isSet = !!settings;
     $("#lock-hint").hidden = isSet;
     $("#lock-copy").hidden = !isSet;
+    $("#forgot-pin-link").hidden = !isSet;
 
     if (isSet && isUnlocked()) {
       $("#lock-screen").hidden = true;
@@ -122,6 +235,7 @@
     const isSet = !!getSettings();
     $("#lock-hint").hidden = isSet;
     $("#lock-copy").hidden = !isSet;
+    $("#forgot-pin-link").hidden = !isSet;
   }
 
   $("#lock-form").addEventListener("submit", async (e) => {
@@ -138,12 +252,15 @@
     const settings = getSettings();
 
     if (!settings) {
-      // First time on this browser: this PIN becomes the lock.
+      // First time on this browser: this PIN becomes the lock, and we mint a
+      // recovery key at the same time so a forgotten PIN isn't a dead end.
       const { hashHex, saltHex } = await derivePin(pin);
-      setSettings({ hashHex, saltHex });
+      const recoveryCode = genRecoveryCode();
+      const { hashHex: recoveryHashHex, saltHex: recoverySaltHex } = await derivePin(recoveryCode);
+      setSettings({ hashHex, saltHex, recoveryHashHex, recoverySaltHex });
       markUnlocked();
       $("#lock-screen").hidden = true;
-      startApp();
+      await showRecoveryModal(recoveryCode, "setup");
       return;
     }
 
@@ -157,10 +274,83 @@
 
     markUnlocked();
     $("#lock-screen").hidden = true;
-    startApp();
+    await startApp();
   });
 
   $("#lock-now").addEventListener("click", () => lock());
+
+  $("#recovery-confirm-check").addEventListener("change", (e) => {
+    $("#recovery-continue").disabled = !e.target.checked;
+  });
+
+  $("#recovery-copy").addEventListener("click", async () => {
+    if (!pendingRecoveryCode) return;
+    try {
+      await navigator.clipboard.writeText(formatRecoveryCode(pendingRecoveryCode));
+      showToast("Recovery key copied");
+    } catch {
+      showToast("Couldn't copy — select and copy it manually.");
+    }
+  });
+
+  $("#recovery-continue").addEventListener("click", async () => {
+    $("#recovery-modal").hidden = true;
+    const context = recoveryModalContext;
+    pendingRecoveryCode = null;
+    if (context === "setup") {
+      await startApp();
+    } else {
+      showToast("Recovery key updated");
+    }
+  });
+
+  // ================= Forgot PIN (reset via recovery key) =================
+  $("#forgot-pin-link").addEventListener("click", () => {
+    $("#reset-pin-form").reset();
+    $("#reset-pin-error").hidden = true;
+    $("#reset-pin-modal").hidden = false;
+    $("#reset-recovery-code").focus();
+  });
+
+  $("#reset-pin-cancel").addEventListener("click", () => {
+    $("#reset-pin-modal").hidden = true;
+  });
+  $("#reset-pin-modal").addEventListener("click", (e) => {
+    if (e.target.id === "reset-pin-modal") $("#reset-pin-modal").hidden = true;
+  });
+
+  $("#reset-pin-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = normalizeRecoveryCode($("#reset-recovery-code").value);
+    const newPin = $("#reset-new-pin").value.trim();
+    const errorEl = $("#reset-pin-error");
+    errorEl.hidden = true;
+
+    if (!/^\d{4,8}$/.test(newPin)) {
+      errorEl.hidden = false;
+      errorEl.textContent = "New PIN must be 4 to 8 digits.";
+      return;
+    }
+
+    const settings = getSettings();
+    if (!settings || !settings.recoveryHashHex) {
+      errorEl.hidden = false;
+      errorEl.textContent = "No recovery key was set up for this ledger. Use Settings > Erase all data to start over.";
+      return;
+    }
+
+    const { hashHex: candidateHash } = await derivePin(code, settings.recoverySaltHex);
+    if (candidateHash !== settings.recoveryHashHex) {
+      errorEl.hidden = false;
+      errorEl.textContent = "That recovery key doesn't match.";
+      return;
+    }
+
+    const { hashHex, saltHex } = await derivePin(newPin);
+    setSettings({ ...settings, hashHex, saltHex });
+    $("#reset-pin-modal").hidden = true;
+    lock("PIN reset. Enter your new PIN to continue.");
+  });
 
   $("#lock-pin-toggle").addEventListener("click", () => {
     const input = $("#lock-pin");
@@ -183,11 +373,12 @@
   $$("[data-view-link]").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.viewLink)));
 
   // ================= App start =================
-  function startApp() {
+  async function startApp() {
     $("#app").hidden = false;
     populateCategoryOptions();
-    loadAll();
-    renderDashboard();
+    renderDashboard(); // render immediately with whatever's cached, then refresh
+    await loadAll();
+    refreshCurrentView();
   }
 
   function populateCategoryOptions() {
@@ -220,17 +411,25 @@
     attachRowHandlers("#recent-list");
   }
 
+  const ICON_IN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5M6 13l6 6 6-6"/></svg>`;
+  const ICON_OUT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M6 11l6-6 6 6"/></svg>`;
+
   function rowHtml(t) {
     const d = new Date(t.date);
     const dateStr = d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
     const sign = t.type === "in" ? "+" : "−";
     const cls = t.type === "in" ? "figure-in" : "figure-out";
+    const iconCls = t.type === "in" ? "icon-in" : "icon-out";
+    const icon = t.type === "in" ? ICON_IN : ICON_OUT;
     const note = t.note ? ` · ${escapeHtml(t.note)}` : "";
     return `
       <div class="ledger-row" data-id="${t._id}">
-        <div class="ledger-main">
-          <span class="ledger-category">${escapeHtml(t.category)}</span>
-          <span class="ledger-meta">${dateStr}${note}</span>
+        <div class="ledger-left">
+          <span class="ledger-icon ${iconCls}">${icon}</span>
+          <div class="ledger-main">
+            <span class="ledger-category">${escapeHtml(t.category)}</span>
+            <span class="ledger-meta">${dateStr}${note}</span>
+          </div>
         </div>
         <span class="ledger-amount ${cls}">${sign} ${money(t.amount)}</span>
       </div>`;
@@ -416,7 +615,7 @@
     return null;
   }
 
-  $("#entry-form").addEventListener("submit", (e) => {
+  $("#entry-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#entry-id").value;
     const payload = {
@@ -434,41 +633,53 @@
       return;
     }
 
-    if (id) {
-      const idx = state.transactions.findIndex((t) => t._id === id);
-      if (idx !== -1) {
-        state.transactions[idx] = { ...state.transactions[idx], ...payload, date: new Date(payload.date).toISOString() };
-      }
-      showToast("Entry updated");
-    } else {
-      state.transactions.unshift({
-        _id: uid(),
-        ...payload,
-        date: new Date(payload.date).toISOString(),
-        createdAt: new Date().toISOString(),
-      });
-      showToast("Entry added");
-    }
+    const submitBtn = $("#entry-form [type=submit]");
+    if (submitBtn) submitBtn.disabled = true;
 
-    loadAllFromMemorySortAndSave();
-    closeEntryModal();
-    refreshCurrentView();
+    try {
+      if (id) {
+        const idx = state.transactions.findIndex((t) => t._id === id);
+        const updated = { ...state.transactions[idx], ...payload, date: new Date(payload.date).toISOString() };
+        await updateTransaction(updated);
+        if (idx !== -1) state.transactions[idx] = updated;
+        showToast("Entry updated");
+      } else {
+        const created = {
+          _id: uid(),
+          ...payload,
+          date: new Date(payload.date).toISOString(),
+          createdAt: new Date().toISOString(),
+        };
+        await insertTransaction(created);
+        state.transactions.unshift(created);
+        showToast("Entry added");
+      }
+
+      sortTransactions();
+      closeEntryModal();
+      refreshCurrentView();
+    } catch (err) {
+      $("#entry-error").hidden = false;
+      $("#entry-error").textContent = err.message;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
   });
 
-  function loadAllFromMemorySortAndSave() {
-    state.transactions.sort((a, b) => new Date(b.date) - new Date(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
-    saveAll();
-  }
-
-  $("#entry-delete").addEventListener("click", () => {
+  $("#entry-delete").addEventListener("click", async () => {
     const id = $("#entry-id").value;
     if (!id) return;
     if (!confirm("Delete this entry? This can't be undone.")) return;
-    state.transactions = state.transactions.filter((t) => t._id !== id);
-    saveAll();
-    showToast("Entry deleted");
-    closeEntryModal();
-    refreshCurrentView();
+    try {
+      await deleteTransaction(id);
+      state.transactions = state.transactions.filter((t) => t._id !== id);
+      showToast("Entry deleted");
+      closeEntryModal();
+      refreshCurrentView();
+    } catch (err) {
+      $("#entry-error").hidden = false;
+      $("#entry-error").textContent = err.message;
+    }
   });
 
   function refreshCurrentView() {
@@ -504,11 +715,35 @@
     }
 
     const next = await derivePin(newPin);
-    setSettings(next);
+    setSettings({ ...settings, ...next });
     status.hidden = false;
     status.classList.add("is-success");
     status.textContent = "PIN updated.";
     $("#change-pin-form").reset();
+  });
+
+  $("#regen-recovery-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pin = $("#regen-recovery-pin").value.trim();
+    const status = $("#regen-recovery-status");
+    status.hidden = true;
+    status.classList.remove("is-success");
+
+    const settings = getSettings();
+    if (!settings) return;
+
+    const { hashHex } = await derivePin(pin, settings.saltHex);
+    if (hashHex !== settings.hashHex) {
+      status.hidden = false;
+      status.textContent = "Current PIN is incorrect.";
+      return;
+    }
+
+    const recoveryCode = genRecoveryCode();
+    const { hashHex: recoveryHashHex, saltHex: recoverySaltHex } = await derivePin(recoveryCode);
+    setSettings({ ...settings, recoveryHashHex, recoverySaltHex });
+    $("#regen-recovery-form").reset();
+    await showRecoveryModal(recoveryCode, "regenerate");
   });
 
   $("#backup-json").addEventListener("click", () => {
@@ -547,8 +782,9 @@
         return;
       }
 
+      await insertTransactions(withIds);
       state.transactions = state.transactions.concat(withIds);
-      loadAllFromMemorySortAndSave();
+      sortTransactions();
       status.hidden = false;
       status.classList.add("is-success");
       status.textContent = `Imported ${withIds.length} entries.`;
@@ -561,14 +797,82 @@
     }
   });
 
-  $("#reset-all").addEventListener("click", () => {
-    if (!confirm("Erase every entry and PIN stored in this browser? This cannot be undone.")) return;
-    localStorage.removeItem(LS_TRANSACTIONS);
+  $("#reset-all").addEventListener("click", async () => {
+    if (!confirm("Erase every entry from the cloud and the PIN stored in this browser? This cannot be undone.")) return;
+    try {
+      await deleteAllTransactions();
+    } catch (err) {
+      showToast(err.message);
+      return;
+    }
     localStorage.removeItem(LS_SETTINGS);
     sessionStorage.removeItem(SS_UNLOCKED);
     location.reload();
   });
 
+  // ================= Login (Supabase Auth) =================
+  $("#login-password-toggle").addEventListener("click", () => {
+    const input = $("#login-password");
+    const btn = $("#login-password-toggle");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    btn.textContent = showing ? "Show" : "Hide";
+    btn.setAttribute("aria-pressed", String(!showing));
+    input.focus();
+  });
+
+  $("#login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("#login-email").value.trim();
+    const password = $("#login-password").value;
+    $("#login-error").hidden = true;
+
+    const submitBtn = $("#login-form [type=submit]");
+    if (submitBtn) submitBtn.disabled = true;
+    const { data, error } = await supa.auth.signInWithPassword({ email, password });
+    if (submitBtn) submitBtn.disabled = false;
+
+    if (error) {
+      $("#login-error").hidden = false;
+      $("#login-error").textContent = "Couldn't log in — check your email and password.";
+      return;
+    }
+
+    setAccountEmail(data.user && data.user.email);
+    $("#login-screen").hidden = true;
+    initLock();
+  });
+
+  function setAccountEmail(email) {
+    $("#account-email").textContent = email || "—";
+  }
+
+  $("#logout-btn").addEventListener("click", async () => {
+    if (!confirm("Log out of ApnaKhata? You'll need your email and password to log back in.")) return;
+    await supa.auth.signOut();
+    sessionStorage.removeItem(SS_UNLOCKED);
+    $("#app").hidden = true;
+    $("#lock-screen").hidden = true;
+    $("#login-screen").hidden = false;
+    $("#login-email").value = "";
+    $("#login-password").value = "";
+    $("#login-error").hidden = true;
+    $("#login-email").focus();
+  });
+
   // ================= Init =================
-  initLock();
+  // Real access control starts here: no Supabase session means no PIN screen,
+  // no dashboard, and (once the RLS policy is updated) no data either.
+  async function initAuth() {
+    const { data: { session } } = await supa.auth.getSession();
+    if (session) {
+      setAccountEmail(session.user && session.user.email);
+      $("#login-screen").hidden = true;
+      initLock();
+    } else {
+      $("#login-screen").hidden = false;
+      $("#login-email").focus();
+    }
+  }
+  initAuth();
 })();
